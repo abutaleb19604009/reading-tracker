@@ -1,0 +1,957 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parallel Reader - Cloud & Realtime Sync</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Phosphor Icons & Chart.js -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+                        display: ['"Outfit"', 'sans-serif'],
+                    },
+                    colors: {
+                        brand: {
+                            pink: '#FF4B91',
+                            purple: '#8B5CF6',
+                            cyan: '#06B6D4',
+                            yellow: '#FFB800',
+                            orange: '#FF763B',
+                            mint: '#10B981',
+                        }
+                    },
+                    animation: {
+                        'float': 'float 6s ease-in-out infinite',
+                        'pulse-glow': 'pulseGlow 2s infinite',
+                        'pop': 'pop 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275)',
+                    },
+                    keyframes: {
+                        float: {
+                            '0%, 100%': { transform: 'translateY(0px)' },
+                            '50%': { transform: 'translateY(-8px)' },
+                        },
+                        pop: {
+                            '0%': { transform: 'scale(0.95)', opacity: '0' },
+                            '100%': { transform: 'scale(1)', opacity: '1' },
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <style>
+        body {
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            background-color: #0B0F19;
+            color: #F8FAFC;
+            background-image: 
+                radial-gradient(at 0% 0%, rgba(255, 75, 145, 0.18) 0px, transparent 50%),
+                radial-gradient(at 100% 0%, rgba(139, 92, 246, 0.18) 0px, transparent 50%),
+                radial-gradient(at 50% 100%, rgba(6, 182, 212, 0.14) 0px, transparent 50%);
+            background-attachment: fixed;
+        }
+
+        .glass-card {
+            background: rgba(18, 24, 38, 0.75);
+            backdrop-filter: blur(16px);
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .glass-card-hover {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .glass-card-hover:hover {
+            transform: translateY(-4px);
+            border-color: rgba(255, 255, 255, 0.22);
+            box-shadow: 0 20px 35px -10px rgba(0, 0, 0, 0.6);
+        }
+
+        .gradient-text {
+            background: linear-gradient(135deg, #FF4B91 0%, #FF763B 50%, #FFB800 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(11, 15, 25, 0.8);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(139, 92, 246, 0.4);
+            border-radius: 9999px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 75, 145, 0.7);
+        }
+    </style>
+</head>
+<body class="min-h-screen pb-12 antialiased selection:bg-brand-pink selection:text-white">
+
+    <header class="sticky top-0 z-40 glass-card border-b border-slate-800/80 mb-8 backdrop-blur-md">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
+            <div class="flex items-center gap-3">
+                <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-brand-pink via-brand-purple to-brand-cyan flex items-center justify-center shadow-lg shadow-brand-purple/30">
+                    <i class="ph-bold ph-books text-2xl text-white"></i>
+                </div>
+                <div>
+                    <h1 class="font-display font-extrabold text-2xl tracking-tight text-white flex items-center gap-2">
+                        Parallel<span class="gradient-text">Reader</span>
+                    </h1>
+                    <p class="text-xs text-slate-400 font-medium">Realtime GitHub-Backed Tracker</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-3">
+                <!-- GitHub Realtime Sync Status Badge -->
+                <div id="syncStatusBadge" onclick="openGitHubModal()" class="cursor-pointer flex items-center gap-2.5 bg-slate-800/90 hover:bg-slate-700/90 px-3.5 py-2 rounded-xl border border-slate-700/80 text-xs font-semibold transition-all">
+                    <span id="syncDot" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+                    <span id="syncStatusText" class="text-slate-300">Local Only</span>
+                    <i class="ph-bold ph-git-branch text-brand-purple text-sm"></i>
+                </div>
+
+                <!-- Add Book Button -->
+                <button onclick="openAddModal()" class="flex items-center gap-2 bg-gradient-to-r from-brand-pink via-brand-purple to-brand-cyan hover:opacity-95 text-white font-bold px-4 sm:px-5 py-2.5 rounded-xl shadow-lg shadow-brand-purple/25 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98]">
+                    <i class="ph-bold ph-plus-circle text-lg"></i>
+                    <span class="hidden sm:inline">Add Book</span>
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
+
+        <!-- Metrics Row -->
+        <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div class="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-4">
+                
+                <div class="glass-card p-5 rounded-2xl border-l-4 border-l-brand-pink flex flex-col justify-between relative overflow-hidden group">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Reading Now</span>
+                    <div class="mt-2 flex items-baseline justify-between">
+                        <span id="stat-reading" class="font-display text-3xl font-extrabold text-white">0</span>
+                        <span class="text-[10px] px-2 py-0.5 rounded-full bg-brand-pink/20 text-brand-pink font-semibold">Active</span>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-2">Parallel active books</p>
+                </div>
+
+                <div class="glass-card p-5 rounded-2xl border-l-4 border-l-brand-cyan flex flex-col justify-between relative overflow-hidden group">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Pages Read</span>
+                    <div class="mt-2 flex items-baseline justify-between">
+                        <span id="stat-pages-read" class="font-display text-3xl font-extrabold text-white">0</span>
+                        <i class="ph-bold ph-bookmarks text-brand-cyan"></i>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-2">Cumulative pages</p>
+                </div>
+
+                <div class="glass-card p-5 rounded-2xl border-l-4 border-l-brand-yellow flex flex-col justify-between relative overflow-hidden group">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Avg Progress</span>
+                    <div class="mt-2 flex items-baseline justify-between">
+                        <span id="stat-avg-progress" class="font-display text-3xl font-extrabold text-white">0%</span>
+                        <i class="ph-bold ph-percent text-brand-yellow"></i>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-2">Completion rate</p>
+                </div>
+
+                <div class="glass-card p-5 rounded-2xl border-l-4 border-l-brand-mint flex flex-col justify-between relative overflow-hidden group">
+                    <span class="text-xs font-bold uppercase tracking-wider text-slate-400">Finished</span>
+                    <div class="mt-2 flex items-baseline justify-between">
+                        <span id="stat-finished" class="font-display text-3xl font-extrabold text-white">0</span>
+                        <i class="ph-bold ph-trophy text-brand-mint"></i>
+                    </div>
+                    <p class="text-[11px] text-slate-400 mt-2">Completed titles</p>
+                </div>
+
+            </div>
+
+            <!-- Chart.js Widget -->
+            <div class="glass-card p-5 rounded-2xl flex flex-col justify-between">
+                <div class="flex items-center justify-between mb-2">
+                    <h3 class="font-display font-bold text-slate-200 text-sm flex items-center gap-2">
+                        <i class="ph-bold ph-chart-pie text-brand-purple"></i>
+                        Reading Status Breakdown
+                    </h3>
+                    <button onclick="syncWithGitHub()" title="Force Sync Now" class="text-xs text-brand-purple hover:underline flex items-center gap-1">
+                        <i class="ph-bold ph-arrows-clockwise"></i> Sync
+                    </button>
+                </div>
+                <div class="relative h-36 flex items-center justify-center">
+                    <canvas id="statusChart"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section class="flex flex-col md:flex-row gap-4 items-center justify-between glass-card p-4 rounded-2xl">
+            <!-- Filter Tabs -->
+            <div class="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto pb-2 md:pb-0 scrollbar-none">
+                <button onclick="setFilter('Reading')" id="tab-Reading" class="filter-tab active text-xs sm:text-sm font-bold px-4 py-2 rounded-xl transition-all flex items-center gap-2 bg-brand-purple text-white shadow-md shadow-brand-purple/20">
+                    <i class="ph-bold ph-book-open"></i>
+                    <span>Reading</span>
+                    <span id="badge-count-Reading" class="ml-1 px-1.5 py-0.5 text-[10px] bg-white/20 rounded-full">0</span>
+                </button>
+
+                <button onclick="setFilter('All')" id="tab-All" class="filter-tab text-xs sm:text-sm font-semibold px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-all flex items-center gap-2">
+                    <i class="ph-bold ph-squares-four"></i>
+                    <span>All Books</span>
+                    <span id="badge-count-All" class="ml-1 px-1.5 py-0.5 text-[10px] bg-slate-700/60 rounded-full">0</span>
+                </button>
+
+                <button onclick="setFilter('On Hold')" id="tab-On Hold" class="filter-tab text-xs sm:text-sm font-semibold px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-all flex items-center gap-2">
+                    <i class="ph-bold ph-pause-circle"></i>
+                    <span>Paused</span>
+                    <span id="badge-count-On Hold" class="ml-1 px-1.5 py-0.5 text-[10px] bg-slate-700/60 rounded-full">0</span>
+                </button>
+
+                <button onclick="setFilter('Finished')" id="tab-Finished" class="filter-tab text-xs sm:text-sm font-semibold px-4 py-2 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/60 transition-all flex items-center gap-2">
+                    <i class="ph-bold ph-check-circle"></i>
+                    <span>Finished</span>
+                    <span id="badge-count-Finished" class="ml-1 px-1.5 py-0.5 text-[10px] bg-slate-700/60 rounded-full">0</span>
+                </button>
+            </div>
+
+            <!-- Search Bar & Filters -->
+            <div class="flex items-center gap-3 w-full md:w-auto">
+                <div class="relative flex-1 md:w-64">
+                    <i class="ph-bold ph-magnifying-glass absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm"></i>
+                    <input type="text" id="searchInput" oninput="renderBooks()" placeholder="Search title or author..." class="w-full bg-slate-900/80 border border-slate-700/70 text-slate-100 placeholder-slate-400 text-xs rounded-xl pl-9 pr-4 py-2.5 focus:outline-none focus:border-brand-purple">
+                </div>
+                
+                <select id="formatFilter" onchange="renderBooks()" class="bg-slate-900/80 border border-slate-700/70 text-slate-200 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-brand-purple">
+                    <option value="All">All Formats</option>
+                    <option value="Hardcover">Hardcover</option>
+                    <option value="Paperback">Paperback</option>
+                    <option value="eBook">eBook</option>
+                    <option value="Audiobook">Audiobook</option>
+                    <option value="Research Paper">Research Paper</option>
+                </select>
+            </div>
+        </section>
+
+        <section>
+            <div id="booksGrid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"></div>
+
+            <div id="emptyState" class="hidden glass-card p-12 rounded-3xl text-center max-w-md mx-auto my-12 border border-dashed border-slate-700">
+                <div class="w-20 h-20 rounded-full bg-brand-pink/20 text-brand-pink flex items-center justify-center mx-auto mb-4 text-4xl">
+                    <i class="ph-duotone ph-books"></i>
+                </div>
+                <h3 class="font-display text-xl font-bold text-white mb-2">No books found</h3>
+                <p class="text-sm text-slate-400 mb-6">Your shelf is empty under this filter. Add a new book to begin!</p>
+                <button onclick="openAddModal()" class="bg-gradient-to-r from-brand-pink to-brand-purple text-white font-bold px-6 py-2.5 rounded-xl shadow-lg hover:opacity-90 transition-all text-sm">
+                    Add Book Now
+                </button>
+            </div>
+        </section>
+    </main>
+
+    <!-- Add/Edit Book Modal -->
+    <div id="bookModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+        <div class="glass-card w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-700 relative animate-pop max-h-[90vh] overflow-y-auto">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-brand-purple/20 text-brand-purple flex items-center justify-center text-xl">
+                        <i class="ph-bold ph-book-plus" id="modalIcon"></i>
+                    </div>
+                    <div>
+                        <h2 id="modalTitle" class="font-display text-xl font-bold text-white">Add New Book</h2>
+                        <p class="text-xs text-slate-400">Keep your parallel reading flow organized</p>
+                    </div>
+                </div>
+                <button onclick="closeBookModal()" class="w-9 h-9 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center hover:bg-slate-700 transition-all">
+                    <i class="ph-bold ph-x text-lg"></i>
+                </button>
+            </div>
+
+            <form id="bookForm" onsubmit="handleFormSubmit(event)" class="space-y-4">
+                <input type="hidden" id="bookId">
+
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Book Title *</label>
+                    <input type="text" id="inputTitle" required placeholder="e.g. Project Hail Mary" class="w-full bg-slate-900/90 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-purple">
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Author *</label>
+                    <input type="text" id="inputAuthor" required placeholder="e.g. Andy Weir" class="w-full bg-slate-900/90 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-purple">
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Current Page</label>
+                        <input type="number" id="inputCurrentPage" min="0" value="0" class="w-full bg-slate-900/90 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-purple">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Total Pages *</label>
+                        <input type="number" id="inputTotalPages" required min="1" placeholder="496" class="w-full bg-slate-900/90 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-purple">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Status</label>
+                        <select id="inputStatus" class="w-full bg-slate-900/90 border border-slate-700 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand-purple">
+                            <option value="Reading">Currently Reading</option>
+                            <option value="On Hold">On Pause</option>
+                            <option value="Finished">Finished</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Format</label>
+                        <select id="inputFormat" class="w-full bg-slate-900/90 border border-slate-700 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-brand-purple">
+                            <option value="Hardcover">Hardcover</option>
+                            <option value="Paperback">Paperback</option>
+                            <option value="eBook">eBook</option>
+                            <option value="Audiobook">Audiobook</option>
+                            <option value="Research Paper">Research Paper</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Genre Tag</label>
+                        <input type="text" id="inputGenre" placeholder="Sci-Fi, Psychology..." class="w-full bg-slate-900/90 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand-purple">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Card Accent</label>
+                        <div class="flex items-center gap-2 pt-1.5" id="colorPickerContainer"></div>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+                    <button type="button" onclick="closeBookModal()" class="px-5 py-2.5 rounded-xl border border-slate-700 text-slate-300 hover:text-white hover:bg-slate-800 font-semibold text-sm">
+                        Cancel
+                    </button>
+                    <button type="submit" class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-brand-pink via-brand-purple to-brand-cyan text-white font-bold text-sm shadow-lg hover:opacity-95">
+                        Save Book
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- GitHub Settings Modal -->
+    <div id="githubModal" class="fixed inset-0 z-50 hidden flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md">
+        <div class="glass-card w-full max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl border border-slate-700 relative animate-pop">
+            <div class="flex items-center justify-between pb-4 border-b border-slate-800 mb-6">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-brand-purple/20 text-brand-purple flex items-center justify-center text-xl">
+                        <i class="ph-bold ph-git-branch"></i>
+                    </div>
+                    <div>
+                        <h2 class="font-display text-xl font-bold text-white">GitHub Realtime Backend</h2>
+                        <p class="text-xs text-slate-400">Sync reading state across all devices via GitHub API</p>
+                    </div>
+                </div>
+                <button onclick="closeGitHubModal()" class="w-9 h-9 rounded-xl bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center hover:bg-slate-700">
+                    <i class="ph-bold ph-x text-lg"></i>
+                </button>
+            </div>
+
+            <form onsubmit="saveGitHubSettings(event)" class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">GitHub Personal Access Token (PAT) *</label>
+                    <input type="password" id="ghToken" required placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" class="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-brand-purple font-mono">
+                    <p class="text-[11px] text-slate-400 mt-1">Token requires <code class="text-brand-pink bg-slate-900 px-1 py-0.5 rounded">repo</code> scope permissions.</p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Owner / Username *</label>
+                        <input type="text" id="ghOwner" required placeholder="octocat" class="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-brand-purple">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">Repository Name *</label>
+                        <input type="text" id="ghRepo" required placeholder="reading-tracker" class="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-brand-purple">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1">File Path in Repo</label>
+                    <input type="text" id="ghPath" value="reading-data.json" required class="w-full bg-slate-900 border border-slate-700 text-white rounded-xl px-4 py-2.5 text-xs focus:outline-none focus:border-brand-purple font-mono">
+                </div>
+
+                <div class="flex items-center justify-between pt-4 border-t border-slate-800">
+                    <button type="button" onclick="disconnectGitHub()" class="text-xs text-red-400 hover:underline flex items-center gap-1 font-semibold">
+                        <i class="ph-bold ph-trash"></i> Disconnect Token
+                    </button>
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeGitHubModal()" class="px-4 py-2 rounded-xl border border-slate-700 text-slate-300 text-xs font-semibold">
+                            Cancel
+                        </button>
+                        <button type="submit" class="px-5 py-2 rounded-xl bg-brand-purple text-white font-bold text-xs shadow-lg hover:opacity-90">
+                            Connect & Sync
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const ACCENT_GRADIENTS = [
+            { id: 'pink-orange', border: 'border-pink-500/50', bg: 'bg-pink-500/10', text: 'text-pink-400', bar: 'bg-gradient-to-r from-pink-500 to-amber-500' },
+            { id: 'purple-pink', border: 'border-purple-500/50', bg: 'bg-purple-500/10', text: 'text-purple-400', bar: 'bg-gradient-to-r from-purple-600 to-pink-500' },
+            { id: 'cyan-blue', border: 'border-cyan-500/50', bg: 'bg-cyan-500/10', text: 'text-cyan-400', bar: 'bg-gradient-to-r from-cyan-400 to-blue-600' },
+            { id: 'emerald-teal', border: 'border-emerald-500/50', bg: 'bg-emerald-500/10', text: 'text-emerald-400', bar: 'bg-gradient-to-r from-emerald-400 to-teal-600' },
+            { id: 'amber-yellow', border: 'border-amber-500/50', bg: 'bg-amber-500/10', text: 'text-amber-400', bar: 'bg-gradient-to-r from-amber-400 to-orange-500' },
+        ];
+
+        const DEFAULT_BOOKS = [
+            {
+                id: '1',
+                title: 'Molecular Biology of the Cell',
+                author: 'Bruce Alberts et al.',
+                currentPage: 420,
+                totalPages: 1464,
+                status: 'Reading',
+                format: 'Hardcover',
+                genre: 'Science',
+                accentId: 'cyan-blue',
+                lastUpdated: new Date().toISOString()
+            },
+            {
+                id: '2',
+                title: 'Dune: Frank Herbert\'s Masterpiece',
+                author: 'Frank Herbert',
+                currentPage: 512,
+                totalPages: 688,
+                status: 'Reading',
+                format: 'eBook',
+                genre: 'Sci-Fi',
+                accentId: 'pink-orange',
+                lastUpdated: new Date().toISOString()
+            }
+        ];
+
+        // App State
+        let books = [];
+        let currentFilter = 'Reading';
+        let selectedAccentId = 'pink-orange';
+        let chartInstance = null;
+        let ghFileSha = null;
+
+        // GitHub Integration State
+        let githubConfig = {
+            token: '',
+            owner: '',
+            repo: '',
+            path: 'reading-data.json'
+        };
+
+        window.addEventListener('DOMContentLoaded', () => {
+            loadGitHubConfig();
+            loadBooksLocal();
+            renderColorPicker();
+            setupChart();
+            renderBooks();
+            updateStats();
+
+            if (githubConfig.token && githubConfig.owner && githubConfig.repo) {
+                syncWithGitHub();
+            }
+        });
+
+        // Local Storage Helpers
+        function loadBooksLocal() {
+            const saved = localStorage.getItem('parallel_reader_books');
+            if (saved) {
+                try { books = JSON.parse(saved); } catch (e) { books = DEFAULT_BOOKS; }
+            } else {
+                books = DEFAULT_BOOKS;
+                saveBooksLocal();
+            }
+        }
+
+        function saveBooksLocal() {
+            localStorage.setItem('parallel_reader_books', JSON.stringify(books));
+        }
+
+        function loadGitHubConfig() {
+            const saved = localStorage.getItem('parallel_reader_gh_config');
+            if (saved) {
+                try { githubConfig = JSON.parse(saved); } catch(e){}
+            }
+            updateSyncBadge('local');
+        }
+
+        // GitHub REST API Cloud Sync Logic
+        async function syncWithGitHub() {
+            if (!githubConfig.token || !githubConfig.owner || !githubConfig.repo) {
+                updateSyncBadge('local');
+                return;
+            }
+
+            updateSyncBadge('syncing');
+
+            try {
+                const url = `https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}`;
+                const res = await fetch(url, {
+                    headers: {
+                        'Authorization': `Bearer ${githubConfig.token}`,
+                        'Accept': 'application/vnd.github.v3+json'
+                    }
+                });
+
+                if (res.status === 200) {
+                    const data = await res.json();
+                    ghFileSha = data.sha;
+                    
+                    // Decode UTF8 / Base64 from GitHub
+                    const content = decodeURIComponent(escape(atob(data.content)));
+                    const cloudBooks = JSON.parse(content);
+
+                    if (Array.isArray(cloudBooks)) {
+                        books = cloudBooks;
+                        saveBooksLocal();
+                        renderBooks();
+                        updateStats();
+                    }
+                    updateSyncBadge('synced');
+                } else if (res.status === 404) {
+                    // File doesn't exist yet, commit initial state to GitHub
+                    await pushToGitHub();
+                } else {
+                    updateSyncBadge('error');
+                }
+            } catch (err) {
+                console.error('GitHub Sync Error:', err);
+                updateSyncBadge('error');
+            }
+        }
+
+        async function pushToGitHub() {
+            if (!githubConfig.token || !githubConfig.owner || !githubConfig.repo) return;
+
+            updateSyncBadge('syncing');
+
+            try {
+                const url = `https://api.github.com/repos/${githubConfig.owner}/${githubConfig.repo}/contents/${githubConfig.path}`;
+                const contentEncoded = btoa(unescape(encodeURIComponent(JSON.stringify(books, null, 2))));
+
+                const payload = {
+                    message: `Update reading progress via ParallelReader [${new Date().toLocaleTimeString()}]`,
+                    content: contentEncoded,
+                };
+                if (ghFileSha) payload.sha = ghFileSha;
+
+                const res = await fetch(url, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${githubConfig.token}`,
+                        'Accept': 'application/vnd.github.v3+json',
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    ghFileSha = data.content.sha;
+                    updateSyncBadge('synced');
+                } else {
+                    updateSyncBadge('error');
+                }
+            } catch (err) {
+                console.error('Push to GitHub Error:', err);
+                updateSyncBadge('error');
+            }
+        }
+
+        function triggerDataSave() {
+            saveBooksLocal();
+            if (githubConfig.token) {
+                pushToGitHub();
+            }
+        }
+
+        function updateSyncBadge(state) {
+            const badge = document.getElementById('syncStatusBadge');
+            const dot = document.getElementById('syncDot');
+            const text = document.getElementById('syncStatusText');
+
+            if (state === 'synced') {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-400';
+                text.innerText = 'GitHub Synced';
+            } else if (state === 'syncing') {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-brand-yellow animate-ping';
+                text.innerText = 'Syncing...';
+            } else if (state === 'error') {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-red-500';
+                text.innerText = 'Sync Error';
+            } else {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-slate-500';
+                text.innerText = 'Local Only';
+            }
+        }
+
+        // Render UI Elements
+        function setFilter(status) {
+            currentFilter = status;
+            document.querySelectorAll('.filter-tab').forEach(btn => {
+                btn.classList.remove('bg-brand-purple', 'text-white', 'shadow-md', 'shadow-brand-purple/20');
+                btn.classList.add('text-slate-400');
+            });
+
+            const activeBtn = document.getElementById(`tab-${status}`);
+            if (activeBtn) {
+                activeBtn.classList.add('bg-brand-purple', 'text-white', 'shadow-md', 'shadow-brand-purple/20');
+                activeBtn.classList.remove('text-slate-400');
+            }
+
+            renderBooks();
+        }
+
+        function getPercentage(current, total) {
+            if (!total || total <= 0) return 0;
+            return Math.min(100, Math.max(0, Math.round((current / total) * 100)));
+        }
+
+        function getAccent(accentId) {
+            return ACCENT_GRADIENTS.find(a => a.id === accentId) || ACCENT_GRADIENTS[0];
+        }
+
+        function getFormatIcon(format) {
+            switch(format) {
+                case 'Audiobook': return 'ph-headphones';
+                case 'eBook': return 'ph-device-tablet';
+                case 'Hardcover': return 'ph-book';
+                case 'Paperback': return 'ph-book-open';
+                case 'Research Paper': return 'ph-article';
+                default: return 'ph-book-bookmark';
+            }
+        }
+
+        function renderBooks() {
+            const container = document.getElementById('booksGrid');
+            const emptyState = document.getElementById('emptyState');
+            const searchVal = document.getElementById('searchInput').value.toLowerCase().trim();
+            const formatVal = document.getElementById('formatFilter').value;
+
+            const filtered = books.filter(b => {
+                const matchesStatus = currentFilter === 'All' || b.status === currentFilter;
+                const matchesSearch = b.title.toLowerCase().includes(searchVal) || b.author.toLowerCase().includes(searchVal);
+                const matchesFormat = formatVal === 'All' || b.format === formatVal;
+                return matchesStatus && matchesSearch && matchesFormat;
+            });
+
+            document.getElementById('badge-count-All').innerText = books.length;
+            document.getElementById('badge-count-Reading').innerText = books.filter(b => b.status === 'Reading').length;
+            document.getElementById('badge-count-On Hold').innerText = books.filter(b => b.status === 'On Hold').length;
+            document.getElementById('badge-count-Finished').innerText = books.filter(b => b.status === 'Finished').length;
+
+            if (filtered.length === 0) {
+                container.innerHTML = '';
+                emptyState.classList.remove('hidden');
+                return;
+            }
+
+            emptyState.classList.add('hidden');
+
+            container.innerHTML = filtered.map(book => {
+                const accent = getAccent(book.accentId);
+                const pct = getPercentage(book.currentPage, book.totalPages);
+                const formatIcon = getFormatIcon(book.format);
+
+                return `
+                <div class="glass-card glass-card-hover rounded-3xl p-6 relative flex flex-col justify-between overflow-hidden border border-slate-700/70">
+                    <div class="absolute top-0 left-0 right-0 h-1.5 ${accent.bar}"></div>
+
+                    <div>
+                        <div class="flex items-center justify-between gap-2 mb-3">
+                            <div class="flex items-center gap-2">
+                                <span class="px-2.5 py-1 rounded-lg ${accent.bg} ${accent.text} border ${accent.border} text-[11px] font-extrabold uppercase flex items-center gap-1.5">
+                                    <i class="ph-bold ${formatIcon}"></i>
+                                    ${book.format}
+                                </span>
+                                ${book.genre ? `<span class="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-[11px] font-semibold">${book.genre}</span>` : ''}
+                            </div>
+
+                            <div class="flex items-center gap-1">
+                                <button onclick="openEditModal('${book.id}')" title="Edit Book" class="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800 transition-all">
+                                    <i class="ph-bold ph-pencil-simple text-base"></i>
+                                </button>
+                                <button onclick="deleteBook('${book.id}')" title="Delete Book" class="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-slate-800 transition-all">
+                                    <i class="ph-bold ph-trash text-base"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <div class="mb-4">
+                            <h3 class="font-display font-extrabold text-lg text-white line-clamp-1">${book.title}</h3>
+                            <p class="text-xs text-slate-400 font-medium">${book.author}</p>
+                        </div>
+
+                        <div class="space-y-2 mb-4 bg-slate-900/60 p-3.5 rounded-2xl border border-slate-800">
+                            <div class="flex items-center justify-between text-xs">
+                                <span class="text-slate-400 font-medium">Progress</span>
+                                <div class="font-bold text-white flex items-center gap-1">
+                                    <span class="text-base font-extrabold">${pct}%</span>
+                                    <span class="text-slate-500 font-normal">(${book.currentPage}/${book.totalPages} pgs)</span>
+                                </div>
+                            </div>
+
+                            <div class="w-full h-3 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-slate-700/50">
+                                <div class="h-full rounded-full transition-all duration-500 ${accent.bar}" style="width: ${pct}%"></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="pt-3 border-t border-slate-800/80 space-y-3">
+                        <div class="flex items-center justify-between gap-1.5">
+                            <span class="text-[11px] font-semibold text-slate-400">Quick Pages:</span>
+                            <div class="flex items-center gap-1">
+                                <button onclick="adjustPage('${book.id}', 1)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-purple text-slate-300 text-xs font-bold transition-all border border-slate-700">+1</button>
+                                <button onclick="adjustPage('${book.id}', 10)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-purple text-slate-300 text-xs font-bold transition-all border border-slate-700">+10</button>
+                                <button onclick="adjustPage('${book.id}', 50)" class="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-brand-purple text-slate-300 text-xs font-bold transition-all border border-slate-700">+50</button>
+                            </div>
+                        </div>
+
+                        <select onchange="updateBookStatus('${book.id}', this.value)" class="bg-slate-900 border border-slate-700 text-xs text-slate-200 rounded-xl px-3 py-1.5 focus:outline-none font-semibold w-full">
+                            <option value="Reading" ${book.status === 'Reading' ? 'selected' : ''}>📖 Reading Now</option>
+                            <option value="On Hold" ${book.status === 'On Hold' ? 'selected' : ''}>⏸️ On Pause</option>
+                            <option value="Finished" ${book.status === 'Finished' ? 'selected' : ''}>🎉 Finished</option>
+                        </select>
+                    </div>
+                </div>
+                `;
+            }).join('');
+        }
+
+        function adjustPage(id, amount) {
+            const book = books.find(b => b.id === id);
+            if (!book) return;
+
+            book.currentPage = Math.min(book.totalPages, Math.max(0, book.currentPage + amount));
+            if (book.currentPage === book.totalPages && book.status !== 'Finished') {
+                book.status = 'Finished';
+            }
+            book.lastUpdated = new Date().toISOString();
+            
+            triggerDataSave();
+            renderBooks();
+            updateStats();
+        }
+
+        function updateBookStatus(id, newStatus) {
+            const book = books.find(b => b.id === id);
+            if (!book) return;
+
+            book.status = newStatus;
+            if (newStatus === 'Finished') book.currentPage = book.totalPages;
+            
+            triggerDataSave();
+            renderBooks();
+            updateStats();
+        }
+
+        function deleteBook(id) {
+            if (confirm('Delete this book from your shelf?')) {
+                books = books.filter(b => b.id !== id);
+                triggerDataSave();
+                renderBooks();
+                updateStats();
+            }
+        }
+
+        function updateStats() {
+            const readingList = books.filter(b => b.status === 'Reading');
+            const finishedList = books.filter(b => b.status === 'Finished');
+            const totalPages = books.reduce((acc, b) => acc + (b.currentPage || 0), 0);
+
+            let avgPct = 0;
+            if (readingList.length > 0) {
+                const totalPctSum = readingList.reduce((acc, b) => acc + getPercentage(b.currentPage, b.totalPages), 0);
+                avgPct = Math.round(totalPctSum / readingList.length);
+            }
+
+            document.getElementById('stat-reading').innerText = readingList.length;
+            document.getElementById('stat-pages-read').innerText = totalPages.toLocaleString();
+            document.getElementById('stat-avg-progress').innerText = `${avgPct}%`;
+            document.getElementById('stat-finished').innerText = finishedList.length;
+
+            updateChart();
+        }
+
+        function setupChart() {
+            const ctx = document.getElementById('statusChart').getContext('2d');
+            chartInstance = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Reading', 'On Hold', 'Finished'],
+                    datasets: [{
+                        data: [0, 0, 0],
+                        backgroundColor: ['#8B5CF6', '#FFB800', '#10B981'],
+                        borderWidth: 0,
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            position: 'right',
+                            labels: { color: '#94A3B8', font: { family: 'Plus Jakarta Sans', size: 11 } }
+                        }
+                    },
+                    cutout: '70%'
+                }
+            });
+        }
+
+        function updateChart() {
+            if (!chartInstance) return;
+            const reading = books.filter(b => b.status === 'Reading').length;
+            const onHold = books.filter(b => b.status === 'On Hold').length;
+            const finished = books.filter(b => b.status === 'Finished').length;
+
+            chartInstance.data.datasets[0].data = [reading, onHold, finished];
+            chartInstance.update();
+        }
+
+        function renderColorPicker() {
+            const container = document.getElementById('colorPickerContainer');
+            container.innerHTML = ACCENT_GRADIENTS.map(accent => `
+                <button type="button" 
+                    onclick="selectAccent('${accent.id}')"
+                    id="color-opt-${accent.id}"
+                    class="color-option w-6 h-6 rounded-full ${accent.bar} border border-slate-700 hover:scale-110 transition-all">
+                </button>
+            `).join('');
+            selectAccent(selectedAccentId);
+        }
+
+        function selectAccent(accentId) {
+            selectedAccentId = accentId;
+            document.querySelectorAll('.color-option').forEach(el => el.classList.remove('ring-2', 'ring-white'));
+            const active = document.getElementById(`color-opt-${accentId}`);
+            if (active) active.classList.add('ring-2', 'ring-white');
+        }
+
+        // Modals
+        function openAddModal() {
+            document.getElementById('bookId').value = '';
+            document.getElementById('bookForm').reset();
+            document.getElementById('modalTitle').innerText = 'Add New Book';
+            selectAccent('pink-orange');
+            document.getElementById('bookModal').classList.remove('hidden');
+        }
+
+        function openEditModal(id) {
+            const book = books.find(b => b.id === id);
+            if (!book) return;
+
+            document.getElementById('bookId').value = book.id;
+            document.getElementById('inputTitle').value = book.title;
+            document.getElementById('inputAuthor').value = book.author;
+            document.getElementById('inputCurrentPage').value = book.currentPage;
+            document.getElementById('inputTotalPages').value = book.totalPages;
+            document.getElementById('inputStatus').value = book.status;
+            document.getElementById('inputFormat').value = book.format;
+            document.getElementById('inputGenre').value = book.genre || '';
+            selectAccent(book.accentId || 'pink-orange');
+
+            document.getElementById('modalTitle').innerText = 'Edit Book Details';
+            document.getElementById('bookModal').classList.remove('hidden');
+        }
+
+        function closeBookModal() {
+            document.getElementById('bookModal').classList.add('hidden');
+        }
+
+        function openGitHubModal() {
+            document.getElementById('ghToken').value = githubConfig.token;
+            document.getElementById('ghOwner').value = githubConfig.owner;
+            document.getElementById('ghRepo').value = githubConfig.repo;
+            document.getElementById('ghPath').value = githubConfig.path || 'reading-data.json';
+            document.getElementById('githubModal').classList.remove('hidden');
+        }
+
+        function closeGitHubModal() {
+            document.getElementById('githubModal').classList.add('hidden');
+        }
+
+        function saveGitHubSettings(e) {
+            e.preventDefault();
+            githubConfig = {
+                token: document.getElementById('ghToken').value.trim(),
+                owner: document.getElementById('ghOwner').value.trim(),
+                repo: document.getElementById('ghRepo').value.trim(),
+                path: document.getElementById('ghPath').value.trim() || 'reading-data.json'
+            };
+
+            localStorage.setItem('parallel_reader_gh_config', JSON.stringify(githubConfig));
+            closeGitHubModal();
+            syncWithGitHub();
+        }
+
+        function disconnectGitHub() {
+            githubConfig = { token: '', owner: '', repo: '', path: 'reading-data.json' };
+            localStorage.removeItem('parallel_reader_gh_config');
+            ghFileSha = null;
+            closeGitHubModal();
+            updateSyncBadge('local');
+        }
+
+        function handleFormSubmit(e) {
+            e.preventDefault();
+
+            const id = document.getElementById('bookId').value;
+            const title = document.getElementById('inputTitle').value.trim();
+            const author = document.getElementById('inputAuthor').value.trim();
+            const currentPage = parseInt(document.getElementById('inputCurrentPage').value) || 0;
+            const totalPages = parseInt(document.getElementById('inputTotalPages').value) || 1;
+            const status = document.getElementById('inputStatus').value;
+            const format = document.getElementById('inputFormat').value;
+            const genre = document.getElementById('inputGenre').value.trim();
+
+            if (id) {
+                const book = books.find(b => b.id === id);
+                if (book) {
+                    book.title = title;
+                    book.author = author;
+                    book.currentPage = Math.min(totalPages, currentPage);
+                    book.totalPages = totalPages;
+                    book.status = status;
+                    book.format = format;
+                    book.genre = genre;
+                    book.accentId = selectedAccentId;
+                    book.lastUpdated = new Date().toISOString();
+                }
+            } else {
+                books.unshift({
+                    id: Date.now().toString(),
+                    title,
+                    author,
+                    currentPage: Math.min(totalPages, currentPage),
+                    totalPages,
+                    status,
+                    format,
+                    genre,
+                    accentId: selectedAccentId,
+                    lastUpdated: new Date().toISOString()
+                });
+            }
+
+            triggerDataSave();
+            closeBookModal();
+            renderBooks();
+            updateStats();
+        }
+    </script>
+</body>
+</html>
